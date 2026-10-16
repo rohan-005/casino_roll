@@ -11,25 +11,66 @@ public class GameUI : MonoBehaviour
     [SerializeField] private GameObject lossPanel;
     [SerializeField] private TMP_Text resultText;
 
+    [Header("Pause Menu")]
+    [SerializeField] private Button pauseButton;
+    [SerializeField] private GameObject pausePanel;
+    [SerializeField] private Button resumeButton;
+    [SerializeField] private Button exitButton;
+
     private void Awake()
     {
+        Time.timeScale = 1f;
         SetPanels(false, false);
+
+        if (pausePanel != null) pausePanel.SetActive(false);
     }
 
     private void Start()
     {
         if (rollButton != null) rollButton.onClick.AddListener(OnRollClicked);
+        if (pauseButton != null) pauseButton.onClick.AddListener(PauseGame);
+        if (resumeButton != null) resumeButton.onClick.AddListener(ResumeGame);
+        if (exitButton != null) exitButton.onClick.AddListener(ExitGame);
+
         if (resultText != null) resultText.text = "READY TO ROLL";
     }
 
     private void OnDestroy()
     {
+        Time.timeScale = 1f;
+
         if (rollButton != null) rollButton.onClick.RemoveListener(OnRollClicked);
+        if (pauseButton != null) pauseButton.onClick.RemoveListener(PauseGame);
+        if (resumeButton != null) resumeButton.onClick.RemoveListener(ResumeGame);
+        if (exitButton != null) exitButton.onClick.RemoveListener(ExitGame);
     }
 
     private void OnRollClicked()
     {
         if (GameManager.Instance != null) GameManager.Instance.RollDice();
+    }
+
+    public void PauseGame()
+    {
+        Time.timeScale = 0f;
+        if (pausePanel != null) pausePanel.SetActive(true);
+    }
+
+    public void ResumeGame()
+    {
+        Time.timeScale = 1f;
+        if (pausePanel != null) pausePanel.SetActive(false);
+    }
+
+    public void ExitGame()
+    {
+        Time.timeScale = 1f;
+
+#if UNITY_EDITOR
+        UnityEditor.EditorApplication.isPlaying = false;
+#else
+        Application.Quit();
+#endif
     }
 
     public void SetButtonInteractable(bool value)
