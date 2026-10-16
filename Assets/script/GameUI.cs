@@ -13,76 +13,46 @@ public class GameUI : MonoBehaviour
 
     private void Awake()
     {
-        if (winPanel != null)
-            winPanel.SetActive(false);
-
-        if (lossPanel != null)
-            lossPanel.SetActive(false);
+        SetPanels(false, false);
     }
 
     private void Start()
     {
-        rollButton.onClick.AddListener(OnRollClicked);
+        if (rollButton != null) rollButton.onClick.AddListener(OnRollClicked);
+        if (resultText != null) resultText.text = "READY TO ROLL";
     }
 
     private void OnDestroy()
     {
-        if (rollButton != null)
-            rollButton.onClick.RemoveListener(OnRollClicked);
+        if (rollButton != null) rollButton.onClick.RemoveListener(OnRollClicked);
     }
 
     private void OnRollClicked()
     {
-        if (GameManager.Instance != null)
-        {
-            GameManager.Instance.RollDice();
-        }
+        if (GameManager.Instance != null) GameManager.Instance.RollDice();
     }
 
     public void SetButtonInteractable(bool value)
     {
-        rollButton.interactable = value;
+        if (rollButton != null) rollButton.interactable = value;
     }
 
-    public void ShowRolling()
+    public void ShowRolling() => Show(false, false, "ROLLING...", "ROLLING...");
+
+    public void ShowWin(string message) => Show(true, false, message, "ROLL AGAIN");
+
+    public void ShowLoss(string message) => Show(false, true, message, "ROLL AGAIN");
+
+    private void Show(bool win, bool loss, string message, string buttonLabel)
     {
-        if (winPanel != null)
-            winPanel.SetActive(false);
-
-        if (lossPanel != null)
-            lossPanel.SetActive(false);
-
-        if (rollButtonText != null)
-            rollButtonText.text = "ROLLING...";
+        SetPanels(win, loss);
+        if (resultText != null) resultText.text = message;
+        if (rollButtonText != null) rollButtonText.text = buttonLabel;
     }
 
-    public void ShowWin(string message)
+    private void SetPanels(bool win, bool loss)
     {
-        if (winPanel != null)
-            winPanel.SetActive(true);
-
-        if (lossPanel != null)
-            lossPanel.SetActive(false);
-
-        if (resultText != null)
-            resultText.text = message;
-
-        if (rollButtonText != null)
-            rollButtonText.text = "ROLL AGAIN";
-    }
-
-    public void ShowLoss(string message)
-    {
-        if (winPanel != null)
-            winPanel.SetActive(false);
-
-        if (lossPanel != null)
-            lossPanel.SetActive(true);
-
-        if (resultText != null)
-            resultText.text = message;
-
-        if (rollButtonText != null)
-            rollButtonText.text = "ROLL AGAIN";
+        if (winPanel != null) winPanel.SetActive(win);
+        if (lossPanel != null) lossPanel.SetActive(loss);
     }
 }

@@ -17,53 +17,70 @@ public class DiceController : MonoBehaviour
     [SerializeField] private DiceFace[] faces = new DiceFace[6];
 
     [Header("Rolling Settings")]
-    [SerializeField] private float torqueStrength = 8f;
-    [SerializeField] private float forceStrength = 1.5f;
+    [SerializeField] private float torqueStrength = 4f;
+    [SerializeField] private float forceStrength = 0.3f;
     [SerializeField] private float rollDuration = 1.5f;
     [SerializeField] private float settleTimeout = 3f;
 
-    private bool isRolling;
+    [Header("Pity Assist")]
+    [Range(0.2f, 0.9f)]
+    [SerializeField] private float assistStartPercent = 0.6f;
+    [SerializeField] private float assistStrength = 12f;
+
+    private const float SettleLinearSpeed = 0.08f;
+    private const float SettleAngularSpeed = 0.1f;
 
     public int Result { get; private set; }
-
-    public bool IsRolling => isRolling;
+    public bool IsRolling { get; private set; }
 
     private void Awake()
     {
-        if (rb == null)
-            rb = GetComponent<Rigidbody>();
+        if (rb == null) rb = GetComponent<Rigidbody>();
     }
 
-    public IEnumerator Roll()
+    // forcedFace = 0 means a fully random roll.
+    public IEnumerator Roll(int forcedFace = 0)
     {
-        isRolling = true;
+        if (rb == null) yield break;
+
+        IsRolling = true;
 
         rb.isKinematic = false;
         rb.useGravity = true;
-
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
 
-        Vector3 torque = Random.onUnitSphere * torqueStrength;
+        rb.AddTorque(Random.onUnitSphere * torqueStrength, ForceMode.Impulse);
 
-        rb.AddTorque(torque, ForceMode.Impulse);
+        Vector3 push = new Vector3(
+            Random.Range(-0.3f, 0.3f),
+            0.2f,
+            Random.Range(-0.3f, 0.3f)
+        ).normalized;
 
-        rb.AddForce(
-            Random.insideUnitSphere * forceStrength,
-            ForceMode.Impulse
-        );
+        rb.AddForce(push * forceStrength, ForceMode.Impulse);
 
-        yield return new WaitForSeconds(rollDuration);
+        bool forced = forcedFace > 0 && TryGetFaceCorrection(forcedFace, out _);
 
+        // Let the die tumble freely first, then start steering it while it's still moving.
+        float assistDelay = forced ? rollDuration * assistStartPercent : rollDuration;
+        yield return new WaitForSeconds(assistDelay);
+
+        float minTime = rollDuration - assistDelay;
         float timer = 0f;
 
-        while (timer < settleTimeout)
+        while (timer < minTime + settleTimeout)
         {
-            if (rb.linearVelocity.magnitude < 0.08f &&
-                rb.angularVelocity.magnitude < 0.1f)
+            if (forced)
             {
-                break;
+                SteerTowardFace(forcedFace, assistStrength * Time.deltaTime);
             }
+
+            bool settled =
+                rb.linearVelocity.magnitude < SettleLinearSpeed &&
+                rb.angularVelocity.magnitude < SettleAngularSpeed;
+
+            if (timer >= minTime && settled) break;
 
             timer += Time.deltaTime;
             yield return null;
@@ -71,95 +88,68 @@ public class DiceController : MonoBehaviour
 
         rb.linearVelocity = Vector3.zero;
         rb.angularVelocity = Vector3.zero;
+        rb.isKinematic = true;
 
-        Result = DetectFrontFace();
-
-        isRolling = false;
-
-        Debug.Log($"{gameObject.name} result: {Result}");
-    }
-
-    public int DetectFrontFace()
-{
-    float bestDot = -Mathf.Infinity;
-    int bestNumber = 0;
-
-    // The die's front faces toward world forward (+Z).
-    Vector3 frontDirection = Vector3.forward;
-
-    foreach (DiceFace face in faces)
-    {
-        if (face == null || face.faceTransform == null)
-            continue;
-
-        Vector3 direction =
-            face.faceTransform.position - transform.position;
-
-        if (direction.sqrMagnitude < 0.0001f)
-            continue;
-
-        direction.Normalize();
-
-        float dot = Vector3.Dot(direction, frontDirection);
-
-        if (dot > bestDot)
+        // Remove any tiny leftover tilt so the result is exact.
+        if (forced && TryGetFaceCorrection(forcedFace, out Quaternion correction))
         {
-            bestDot = dot;
-            bestNumber = face.number;
+            transform.rotation = correction * transform.rotation;
+            Physics.SyncTransforms();
         }
+
+        Result = DetectTopFace();
+        IsRolling = false;
     }
 
-    return bestNumber;
-}
-
-    public void ForceTopFace(int targetNumber)
+    public int DetectTopFace()
     {
-        DiceFace targetFace = null;
+        float bestDot = float.NegativeInfinity;
+        int bestNumber = 0;
 
         foreach (DiceFace face in faces)
         {
-            if (face != null &&
-                face.faceTransform != null &&
-                face.number == targetNumber)
+            if (face == null || face.faceTransform == null) continue;
+
+            Vector3 direction = face.faceTransform.position - transform.position;
+            if (direction.sqrMagnitude < 0.0001f) continue;
+
+            float dot = Vector3.Dot(direction.normalized, Vector3.up);
+            if (dot > bestDot)
             {
-                targetFace = face;
-                break;
+                bestDot = dot;
+                bestNumber = face.number;
             }
         }
 
-        if (targetFace == null)
+        return bestNumber;
+    }
+
+    // Gradually rotates the die so the chosen face points up, while physics keeps running.
+    private void SteerTowardFace(int number, float weight)
+    {
+        if (!TryGetFaceCorrection(number, out Quaternion correction)) return;
+
+        weight = Mathf.Clamp01(weight);
+
+        rb.rotation = Quaternion.Slerp(Quaternion.identity, correction, weight) * rb.rotation;
+        rb.angularVelocity *= 1f - weight * 0.5f;
+    }
+
+    private bool TryGetFaceCorrection(int number, out Quaternion correction)
+    {
+        correction = Quaternion.identity;
+
+        foreach (DiceFace face in faces)
         {
-            Debug.LogError(
-                $"Face {targetNumber} is not mapped on {gameObject.name}."
-            );
-            return;
+            if (face == null || face.faceTransform == null || face.number != number) continue;
+
+            Vector3 direction = face.faceTransform.position - transform.position;
+            if (direction.sqrMagnitude < 0.0001f) return false;
+
+            correction = Quaternion.FromToRotation(direction.normalized, Vector3.up);
+            return true;
         }
 
-        rb.linearVelocity = Vector3.zero;
-        rb.angularVelocity = Vector3.zero;
-
-        Vector3 direction =
-            targetFace.faceTransform.position - transform.position;
-
-        if (direction.sqrMagnitude < 0.0001f)
-        {
-            Debug.LogError(
-                $"Face marker {targetNumber} is at the die's center."
-            );
-            return;
-        }
-
-        Quaternion correction = Quaternion.FromToRotation(
-            direction.normalized,
-            Vector3.up
-        );
-
-        rb.rotation = correction * rb.rotation;
-
-        rb.position = transform.position;
-
-        Physics.SyncTransforms();
-
-        Result = DetectFrontFace();
+        return false;
     }
 }

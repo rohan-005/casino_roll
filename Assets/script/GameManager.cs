@@ -1,18 +1,22 @@
+using System;
 using System.Collections;
 using UnityEngine;
+using Random = UnityEngine.Random;
 
 public class GameManager : MonoBehaviour
 {
     public static GameManager Instance { get; private set; }
 
     [Header("Dice")]
-    [SerializeField] private DiceController[] dice;
+    [SerializeField] private DiceController[] dice = new DiceController[3];
 
     [Header("UI")]
     [SerializeField] private GameUI gameUI;
 
-    private int consecutiveLosses;
-    private bool isPlaying;
+    private const int LossesBeforePity = 3;
+
+    public int ConsecutiveLosses { get; private set; }
+    public bool IsPlaying { get; private set; }
 
     private void Awake()
     {
@@ -27,92 +31,55 @@ public class GameManager : MonoBehaviour
 
     public void RollDice()
     {
-        if (isPlaying)
+        if (IsPlaying || gameUI == null ||
+            dice == null || dice.Length != 3 ||
+            Array.IndexOf(dice, null) >= 0)
+        {
             return;
+        }
 
         StartCoroutine(RollRoutine());
     }
 
+    private bool AllDiceStopped() =>
+        !dice[0].IsRolling && !dice[1].IsRolling && !dice[2].IsRolling;
+
     private IEnumerator RollRoutine()
     {
-        isPlaying = true;
+        IsPlaying = true;
 
         gameUI.SetButtonInteractable(false);
         gameUI.ShowRolling();
 
-        bool guaranteedWin = consecutiveLosses >= 3;
+        // 0 = normal random roll, 1-6 = guaranteed jackpot on that number.
+        int forcedFace = ConsecutiveLosses >= LossesBeforePity ? Random.Range(1, 7) : 0;
 
-        // Start all three dice rolls.
-        for (int i = 0; i < dice.Length; i++)
+        foreach (DiceController die in dice)
         {
-            StartCoroutine(dice[i].Roll());
+            StartCoroutine(die.Roll(forcedFace));
         }
 
-        // Wait for all dice to finish rolling.
-        bool rolling = true;
+        yield return new WaitUntil(AllDiceStopped);
 
-        while (rolling)
-        {
-            rolling = false;
+        int first = dice[0].DetectTopFace();
+        int second = dice[1].DetectTopFace();
+        int third = dice[2].DetectTopFace();
 
-            foreach (DiceController die in dice)
-            {
-                if (die.IsRolling)
-                {
-                    rolling = true;
-                    break;
-                }
-            }
-
-            yield return null;
-        }
-
-        // On the fourth attempt, force all dice to the same face.
-        if (guaranteedWin)
-        {
-            int winningNumber = Random.Range(1, 7);
-
-            foreach (DiceController die in dice)
-            {
-                die.ForceTopFace(winningNumber);
-            }
-
-            // Give the physics engine a moment to process the poses.
-            yield return new WaitForFixedUpdate();
-        }
-
-        int first = dice[0].Result;
-        int second = dice[1].Result;
-        int third = dice[2].Result;
-
-        bool jackpot =
-            first == second &&
-            second == third;
+        bool jackpot = first != 0 && first == second && second == third;
+        string numbers = $"{first} - {second} - {third}";
 
         if (jackpot)
         {
-            consecutiveLosses = 0;
-
-            gameUI.ShowWin(
-                $"JACKPOT! {first} - {second} - {third}"
-            );
+            ConsecutiveLosses = 0;
+            gameUI.ShowWin($"JACKPOT!\n{numbers}");
         }
         else
         {
-            consecutiveLosses++;
-
-            gameUI.ShowLoss(
-                $"TRY AGAIN {first} - {second} - {third}"
-            );
+            ConsecutiveLosses++;
+            gameUI.ShowLoss($"{numbers}");
         }
 
-        Debug.Log(
-            $"Dice: {first}, {second}, {third} | " +
-            $"Consecutive losses: {consecutiveLosses}"
-        );
-
-        isPlaying = false;
-
+        IsPlaying = false;
         gameUI.SetButtonInteractable(true);
     }
 }
